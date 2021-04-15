@@ -16,70 +16,129 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-import csv
-import json
-import sys
+from argparse import ArgumentParser
+from csv import writer as csv_writer
+from json import loads as json_loads
 
-if len(sys.argv) < 3:
-    exit('Usage: ' + sys.argv[0] + ' amass-in-file.json amass-out-file.csv')
+def get_args():
+    parser = ArgumentParser()    
+    parser.add_argument('-i', '--amass_in', 
+        help='Path to the Amass input JSON file.',
+        required=True)
+    parser.add_argument('-o', '--csv_out', 
+        help='Path to output CSV file.',
+        required=True)
+    parser.add_argument('-ip', '--by_ip',
+        action='store_true',
+        help=('Create a new line for each IP address. '
+        'Default is new line for each subdomain and a cell with all associated '
+        'IP address'))
+    return parser
 
-amass = []
-for line in open(sys.argv[1], 'r'):
-    amass.append(json.loads(line))
 
-csv_file = str(sys.argv[2])
+def print_color(message, code, return_color = False):
+    """Prints or returns pretty colors -_o
+    Param message (str): the message to print
+    Param code (str): e = red, i = blue, g = green, w = yellow
+    Param return_color (bool): returns the message and color code 
+    rather than printing it directly.
+    """
+    # Errors red
+    if code == "e":
+        if return_color:
+            return "\033[91m[!] " + message + "\033[0m"
+        print("\033[91m[!] " + message + "\033[0m")
+    
+    # Information blue
+    if code == "i":
+        if return_color:
+            return "\033[95m[*] " + message + "\033[0m"
+        print("\033[95m[*] " + message + "\033[0m")
+    
+    # Good green
+    if code == "g":
+        if return_color:
+            return "\033[92m[+] " + message + "\033[0m"
+        print("\033[92m[+] " + message + "\033[0m")
+    
+    # Warning yellow
+    if code == "w":
+        if return_color:
+            return "\033[93m[*] " + message + "\033[0m"
+        print("\033[93m[*] " + message + "\033[0m")
 
-with open(csv_file, 'w', newline='') as csv_file:
-    amasswriter = csv.writer(csv_file, dialect='excel')
-    amasswriter.writerow(['name', 'domain', 'ip', 'cidr',
-                          'asn', 'desc', 'tag', 'source'])
 
-    for count, row in enumerate(amass):
+def amass_csv(amass_in, csv_out, by_ip=False):
+    """ Returns Amass results in Excell compatable CSV format
+    Param amass_in (str): the Amass data to convert to CSV
+    Param csv_out (str): the path to the CSV output file
+    """
+    amass = []
+    with open(amass_in, 'r') as fh:
+        for line in fh:
+            amass.append(json_loads(line))
 
-        name = row['name']
-        domain = row['domain']
-        addresses = row['addresses']
-        ip = []
-        cidr = []
-        asn = []
-        desc = []
-        tag = ''
-        source = []
+    with open(csv_out, 'w', newline='') as fh:
+        amasswriter = csv_writer(fh, dialect='excel')
+        amasswriter.writerow(['name', 'domain', 'ip', 'cidr',
+                            'asn', 'desc', 'tag', 'source'])
 
-        for address in addresses:
-            ip.append(address['ip'])
-            cidr.append(address['cidr'])
-            asn.append(str(address['asn']))
-            desc.append(address['desc'])
+        write_count = 0
+        for row in amass:
+            name = row['name']
+            domain = row['domain']
+            addresses = row['addresses']
+            ip = []
+            cidr = []
+            asn = []
+            desc = []
+            tag = ''
+            source = []
 
-        tag = row['tag']
+            for address in addresses:
+                ip.append(address['ip'])
+                cidr.append(address['cidr'])
+                asn.append(str(address['asn']))
+                desc.append(address['desc'])
 
-        # the old format did not use a [list] for source
-        if 'sources' in row:
-            source = row['sources']
-        elif 'source' in row:
-            source.append(row['source'])
+            tag = row['tag']
 
-        if '-n' in sys.argv:
-            for i, d in enumerate(ip):
+            # the old format did not use a [list] for source
+            if 'sources' in row:
+                source = row['sources']
+            elif 'source' in row:
+                source.append(row['source'])
+
+            if by_ip:
+                for i, d in enumerate(ip):
+                    amasswriter.writerow([name,
+                        domain,
+                        d,
+                        cidr[i],
+                        asn[i],
+                        desc[i],
+                        tag,
+                        source[0]])
+                    write_count += 1
+            else:
                 amasswriter.writerow([name,
-                                      domain,
-                                      d,
-                                      cidr[i],
-                                      asn[i],
-                                      desc[i],
-                                      tag,
-                                      source[0]])
-        else:
-            amasswriter.writerow([name,
-                                  domain,
-                                  '\r\n'.join(ip),
-                                  '\r\n'.join(cidr),
-                                  '\r\n'.join(asn),
-                                  '\r\n'.join(desc),
-                                  tag,
-                                  '\r\n'.join(source)])
+                    domain,
+                    '\r\n'.join(ip),
+                    '\r\n'.join(cidr),
+                    '\r\n'.join(asn),
+                    '\r\n'.join(desc),
+                    tag,
+                    '\r\n'.join(source)])
+                write_count += 1
+    return write_count
 
 
-print('[i] Wrote ' + str(count) + ' lines')
-print('[+] Done')
+def main():
+    args = get_args().parse_args()
+    print_color('Starting your bidding.', 'g')
+    count = amass_csv(args.amass_in, args.csv_out, args.by_ip)
+    print_color('Wrote ' + str(count) + ' Amass lines', 'i')
+    print_color('Done', 'g')
+
+if __name__ == "__main__":
+    main()
